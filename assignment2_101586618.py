@@ -244,7 +244,6 @@ if __name__ == "__main__":
         answer = str(input("would you like to see past scan history? (yes/no): "))
         
         if answer == "yes":
-            
             load_past_scans()
 
     except ValueError as e:
@@ -256,5 +255,5 @@ if __name__ == "__main__":
     except NameError:
         raise NameError
 
-# Q5: New Feature Proposal
+# Q5: New Feature Proposal 
 # using the parent class a simple IO server can be implemented 
