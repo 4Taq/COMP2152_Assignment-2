@@ -1,102 +1,260 @@
 """
-Author: <YOUR REAL FIRST AND LAST NAME>
+Author: Taha Rahimi Monfared
 Assignment: #2
 Description: Port Scanner — A tool that scans a target machine for open network ports
 """
 
-# TODO: Import the required modules (Step ii)
-# socket, threading, sqlite3, os, platform, datetime
+import socket
+import threading as th
+import sqlite3
+import os
+import platform as plat
+import datetime
 
 
-# TODO: Print Python version and OS name (Step iii)
+print("^" * 70)
+print("OS: ",plat.python_version())
+print("Python version: ", os.name)
+print("^" * 70)
+
+# stores commonly used/attacked ports
+common_ports = {
+    21: "FTP",
+    22: "SSH",
+    23: "Telnet",
+    25: "SMTP",
+    53: "DNS",
+    80: "HTTP",
+    110: "POP3",
+    143: "IMAP",
+    443: "HTTPS",
+    3306: "MySQL",
+    3389: "RDP",
+    8080: "HTTP-Alt"
+}
 
 
-# TODO: Create the common_ports dictionary (Step iv)
-# Add a 1-line comment above it explaining what it stores
+class NetworkTool:
+    def __init__(self, string):
+        self.__target = string
 
+    @property
+    def target(self):
+        return self.__target
 
-# TODO: Create the NetworkTool parent class (Step v)
-# - Constructor: takes target, stores as private self.__target
-# - @property getter for target
-# - @target.setter with empty string validation
-# - Destructor: prints "NetworkTool instance destroyed"
+    @target.setter
+    def target(self, string):
+        if string and string.strip():
+            self.__target = string
+        else:
+            raise print("error: target cannot be empty")
+
+    def __del__(self):
+        print("networkTool instance destroyed")
 
 
 # Q3: What is the benefit of using @property and @target.setter?
-# TODO: Your 2-4 sentence answer here... (Part 2, Q3)
+# take a function as input to modify or enhance its behaviour
 
 
 # Q1: How does PortScanner reuse code from NetworkTool?
-# TODO: Your 2-4 sentence answer here... (Part 2, Q1)
-
-# TODO: Create the PortScanner child class that inherits from NetworkTool (Step vi)
-# - Constructor: call super().__init__(target), initialize self.scan_results = [], self.lock = threading.Lock()
-# - Destructor: print "PortScanner instance destroyed", call super().__del__()
-#
-# - scan_port(self, port):
-#     Q4: What would happen without try-except here?
-#     TODO: Your 2-4 sentence answer here... (Part 2, Q4)
-#
-#     - try-except with socket operations
-#     - Create socket, set timeout, connect_ex
-#     - Determine Open/Closed status
-#     - Look up service name from common_ports (use "Unknown" if not found)
-#     - Acquire lock, append (port, status, service_name) tuple, release lock
-#     - Close socket in finally block
-#     - Catch socket.error, print error message
-#
-# - get_open_ports(self):
-#     - Use list comprehension to return only "Open" results
-#
-#     Q2: Why do we use threading instead of scanning one port at a time?
-#     TODO: Your 2-4 sentence answer here... (Part 2, Q2)
-#
-# - scan_range(self, start_port, end_port):
-#     - Create threads list
-#     - Create Thread for each port targeting scan_port
-#     - Start all threads (one loop)
-#     - Join all threads (separate loop)
+# implemets target method from parent to store a string value to later be used as a target
+ 
 
 
-# TODO: Create save_results(target, results) function (Step vii)
-# - Connect to scan_history.db
-# - CREATE TABLE IF NOT EXISTS scans (id, target, port, status, service, scan_date)
-# - INSERT each result with datetime.datetime.now()
-# - Commit, close
-# - Wrap in try-except for sqlite3.Error
+class PortScanner(NetworkTool):
+    def __init__(self, target):
+        super().__init__(target)
+        self.scan_results = []
+        self.lock = th.Lock()
+
+    def __del__(self):
+        print("portScanner instance destroyed")
+        super().__del__()
+
+    #  Q4: What would happen without try-except here?
+    #  any error from the OS subsystem will halt the scanning process if not handled
+
+    def scan_port(self, port: int):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                sock.settimeout(1.0)
+                result = sock.connect_ex((self.target, port))
+    
+                if result == 0:
+                    state = "Open"
+                else:
+                    state = "Closed"
+
+            if port in common_ports:
+                service = common_ports[port]
+            else:
+                service = "Unknown"
+
+            with self.lock:
+                self.scan_results.append((port, state, service))
+
+        except OSError as e:
+            with self.lock:
+                self.scan_results.append((port, "Error", f"({e})"))
+
+    def get_open_ports(self):
+        result = [row for row in self.scan_results if row[1] != "Closed"]
+        return result
+
+    #  Q2: Why do we use threading instead of scanning one port at a time?
+    #  concurrency of scans 
+
+    def scan_range(self, start_port, end_port):
+        threads = []
+        for p in range(start_port, end_port):
+            t = th.Thread(target=self.scan_port, args=(p,))
+            threads.append(t)
+
+        for t in threads:
+            t.start()
+
+        for t in threads:
+            t.join()
 
 
-# TODO: Create load_past_scans() function (Step viii)
-# - Connect to scan_history.db
-# - SELECT all from scans
-# - Print each row in readable format
-# - Handle missing table/db: print "No past scans found."
-# - Close connection
+def save_results(target: str, results: list):
+    try:
+        with sqlite3.connect('scan_history.db') as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS scans (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    target TEXT NOT NULL,
+                    port INTEGER NOT NULL,
+                    status TEXT,
+                    service TEXT,
+                    scan_date TEXT NOT NULL
+                )
+            """)
 
+            # now = datetime.datetime.now(datetime.UTC)
+            now = datetime.datetime.now(datetime.UTC).isoformat()
+            insert_data = []
+            for result in results:
+                if len(result) >= 3:
+                    port, status, service = result[:3]
+                else:
+                    continue 
+
+                insert_data.append((
+                    target,
+                    int(port),
+                    status,
+                    service,
+                    now
+                ))
+
+            if insert_data:
+                cursor.executemany(""" INSERT INTO scans (target, port, status,
+                service, scan_date) VALUES (?, ?, ?, ?, ?) """, insert_data)
+                conn.commit()
+                print(f"saved {len(insert_data)} results for {target}")
+            else:
+                print("no valid results to save")
+
+    except sqlite3.Error as e:
+        print(f"database error: {e}")
+        raise
+
+
+def load_past_scans():
+    try:
+        with sqlite3.connect('scan_history.db') as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='scans'")
+            if not cursor.fetchone():
+                print("no past scans found.")
+                return
+
+            cursor.execute("""
+                SELECT target, port, status, service, scan_date
+                FROM scans
+                ORDER BY scan_date DESC, target, port
+            """)
+            rows = cursor.fetchall()
+            if not rows:
+                print("no past scans found.")
+                return
+
+            print("past scans history")
+            print("-" * 70)
+            print(f"{'Target':<18} {'Port':<6} {'Status':<8} {'Service':<12} {'Date':<20}")
+            print("-" * 70)
+
+            for row in rows:
+                target, port, status, service, date = row
+
+                print(f"{target:<18} {port:<6} {status:<8} {service:<12} {date}")
+
+            print("-" * 70)
+            print(f"total records: {len(rows)}")
+
+    except sqlite3.Error as e:
+        print(f"database error: {e}")
+        print("no past scans found, database access failed")
 
 # ============================================================
 # MAIN PROGRAM
 # ============================================================
+
+
 if __name__ == "__main__":
-    pass
-    # TODO: Get user input with try-except (Step ix)
-    # - Target IP (default "127.0.0.1" if empty)
-    # - Start port (1-1024)
-    # - End port (1-1024, >= start port)
-    # - Catch ValueError: "Invalid input. Please enter a valid integer."
-    # - Range check: "Port must be between 1 and 1024."
+    try:
+        # take user input
+        target = str(input("enter target address [empty for default]: ")) or "127.0.0.1"
+        start_p = int(input("enter starting port: "))
+        end_p = int(input("enter endign port: "))
+        while start_p <= 0:
+            start_p = int(input("start port should be batween 1-1024: "))
+        while end_p > 1024:
+            end_p = int(input("end port should be between 1-1024: "))
 
-    # TODO: After valid input (Step x)
-    # - Create PortScanner object
-    # - Print "Scanning {target} from port {start} to {end}..."
-    # - Call scan_range()
-    # - Call get_open_ports() and print results
-    # - Print total open ports found
-    # - Call save_results()
-    # - Ask "Would you like to see past scan history? (yes/no): "
-    # - If "yes", call load_past_scans()
+        # init scan
+        sc = PortScanner(target)
 
+        print("=" * 50)
+        print(f"Scannign {target} from port {start_p} to {end_p}")
+
+        sc.scan_range(start_p, end_p)
+        
+        open_ports = sc.get_open_ports()
+        rows = sc.scan_results
+
+        # print results
+        print(f"{'Port':<6} {'Status':<8} {'Service':<12}")
+        print("-" * 70)
+        for row in rows:
+            p, s, svc = row
+            print(f"{p:<6} {s:<8} {svc:<12}")
+        print("-" * 70)
+        print(f"total open ports = {len(open_ports)}")
+        print("-" * 70)
+        
+        # save results
+        save_results(target, sc.scan_results)
+
+        print("-" * 70)
+
+        answer = str(input("would you like to see past scan history? (yes/no): "))
+        
+        if answer == "yes":
+            
+            load_past_scans()
+
+    except ValueError as e:
+        print("invalid input.", e)
+        
+    except KeyboardInterrupt as e:
+        print(e)
+
+    except NameError:
+        raise NameError
 
 # Q5: New Feature Proposal
-# TODO: Your 2-3 sentence description here... (Part 2, Q5)
-# Diagram: See diagram_studentID.png in the repository root
+# using the parent class a simple IO server can be implemented 
