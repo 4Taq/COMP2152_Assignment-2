@@ -256,4 +256,4 @@ if __name__ == "__main__":
         raise NameError
 
 # Q5: New Feature Proposal 
-# using the parent class a simple IO server can be implemented 
+# introduce option to scan all ports without specifying range
